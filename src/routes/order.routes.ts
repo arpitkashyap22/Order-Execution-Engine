@@ -1,9 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { orderController } from '../controllers/order.controller';
+import { CreateOrderRequest } from '../types/order.types';
 
 export async function orderRoutes(fastify: FastifyInstance) {
   // Create order
-  fastify.post('/orders', async (request, reply) => {
+  fastify.post<{ Body: CreateOrderRequest }>('/orders', async (request, reply) => {
     await orderController.createOrder(request, reply);
   });
 
@@ -13,7 +14,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
   });
 
   // Get order by ID
-  fastify.get('/orders/:orderId', async (request, reply) => {
+  fastify.get<{ Params: { orderId: string } }>('/orders/:orderId', async (request, reply) => {
     await orderController.getOrder(request, reply);
   });
 }
