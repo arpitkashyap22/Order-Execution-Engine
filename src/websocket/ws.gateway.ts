@@ -94,42 +94,6 @@ class WebSocketGateway {
   }
 
   /**
-   * Map progress percentage to order status
-   */
-  private getStatusFromProgress(progress: number | object): OrderStatus {
-    if (typeof progress !== 'number') {
-      return 'pending';
-    }
-
-    if (progress < 20) {
-      return 'pending';
-    } else if (progress < 40) {
-      return 'routing';
-    } else if (progress < 60) {
-      return 'building';
-    } else if (progress < 100) {
-      return 'submitted';
-    } else {
-      return 'confirmed';
-    }
-  }
-
-  /**
-   * Get status message
-   */
-  private getStatusMessage(status: OrderStatus): string {
-    const messages: Record<OrderStatus, string> = {
-      pending: 'Order is pending',
-      routing: 'Finding best DEX route...',
-      building: 'Building transaction...',
-      submitted: 'Transaction submitted to blockchain',
-      confirmed: 'Transaction confirmed',
-    };
-
-    return messages[status];
-  }
-
-  /**
    * Broadcast message to all connected clients
    */
   broadcast(message: OrderProgress): void {
