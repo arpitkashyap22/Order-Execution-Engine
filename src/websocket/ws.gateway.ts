@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { getRedisClient } from '../config/redis';
 import { OrderProgress, OrderStatus } from '../types/order.types';
+import { orderService } from '../services/order.service';
 import { logger } from '../utils/logger';
 import WebSocket from 'ws';
 
@@ -64,6 +65,21 @@ class WebSocketGateway {
       if (channel === 'order-updates') {
         try {
           const progressUpdate: OrderProgress = JSON.parse(message);
+          
+          // Update order service in main server process
+          if (progressUpdate.data) {
+            orderService.updateOrderStatus(
+              progressUpdate.orderId,
+              progressUpdate.status,
+              progressUpdate.data
+            );
+          } else {
+            orderService.updateOrderStatus(
+              progressUpdate.orderId,
+              progressUpdate.status
+            );
+          }
+          
           this.broadcast(progressUpdate);
           logger.debug(`Broadcasting update for order ${progressUpdate.orderId}: ${progressUpdate.status}`);
         } catch (error) {

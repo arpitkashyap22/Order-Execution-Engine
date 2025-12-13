@@ -44,8 +44,9 @@ export class OrderService {
     status: OrderStatus,
     updates?: Partial<Order>
   ): Order | null {
-    const order = ordersStore.get(orderId);
+    const order = this.getOrder(orderId);
     if (!order) {
+      logger.warn(`ORDER STORE: ${Array.from(ordersStore.keys())}`);
       logger.warn(`Order not found: ${orderId}`);
       return null;
     }

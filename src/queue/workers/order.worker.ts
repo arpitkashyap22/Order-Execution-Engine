@@ -1,9 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import { getRedisClient } from '../../config/redis';
 import { OrderJobData, OrderStatus, OrderProgress } from '../../types/order.types';
-import { mockRaydiumRouter } from '../../services/dex/raydium.router';
-import { mockMeteoraRouter } from '../../services/dex/meteora.router';
-import { orderService } from '../../services/order.service';
+import { mockDexRouter } from '../../services/dex/mock-dex.router';
 import { logger } from '../../utils/logger';
 
 /**
@@ -43,7 +41,6 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
   try {
     // Stage 1: Routing (20% progress)
     await job.updateProgress(20);
-    orderService.updateOrderStatus(orderId, 'routing');
     await broadcastProgress({
       orderId,
       status: 'routing',
@@ -54,8 +51,8 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
 
     // Fetch quotes from both DEXs
     const [raydiumQuote, meteoraQuote] = await Promise.all([
-      mockRaydiumRouter(amount, fromToken, toToken),
-      mockMeteoraRouter(amount, fromToken, toToken),
+      mockDexRouter.getRaydiumQuote(fromToken, toToken, amount),
+      mockDexRouter.getMeteoraQuote(fromToken, toToken, amount),
     ]);
 
     logger.info(
@@ -68,10 +65,6 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
 
     // Stage 2: Building (40% progress)
     await job.updateProgress(40);
-    orderService.updateOrderStatus(orderId, 'building', {
-      selectedDex: bestQuote.dex,
-      outputAmount: bestQuote.output,
-    });
     await broadcastProgress({
       orderId,
       status: 'building',
@@ -84,32 +77,37 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
     });
     logger.info(`Order ${orderId}: Building transaction...`);
 
-    // Simulate transaction building
-    await new Promise((resolve) => setTimeout(resolve, 500 + Math.random() * 500));
+    // Reconstruct order object from job data and quote
+    // Note: Worker runs in separate process, so we can't access in-memory order store
+    const order = {
+      orderId,
+      fromToken,
+      toToken,
+      amount,
+      status: 'building' as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      selectedDex: bestQuote.dex,
+      outputAmount: bestQuote.output,
+    };
 
-    // Stage 3: Submitted (60% progress)
+    // Stage 3: Execute swap (60% progress)
     await job.updateProgress(60);
-    const mockTxHash = `0x${Math.random().toString(16).substring(2, 66)}`;
-    orderService.updateOrderStatus(orderId, 'submitted', {
-      transactionHash: mockTxHash,
-    });
+    const swapResult = await mockDexRouter.executeSwap(bestQuote.dex, order);
+    
     await broadcastProgress({
       orderId,
       status: 'submitted',
       progress: 60,
       message: getStatusMessage('submitted'),
       data: {
-        transactionHash: mockTxHash,
+        transactionHash: swapResult.txHash,
       },
     });
-    logger.info(`Order ${orderId}: Transaction submitted: ${mockTxHash}`);
-
-    // Simulate blockchain submission
-    await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
+    logger.info(`Order ${orderId}: Transaction submitted: ${swapResult.txHash}`);
 
     // Stage 4: Confirmed (100% progress)
     await job.updateProgress(100);
-    orderService.updateOrderStatus(orderId, 'confirmed');
     await broadcastProgress({
       orderId,
       status: 'confirmed',
@@ -121,7 +119,6 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
     logger.info(`Order ${orderId} completed successfully`);
   } catch (error) {
     logger.error(`Order ${orderId} failed:`, error);
-    orderService.updateOrderStatus(orderId, 'pending'); // Reset to pending on error
     await broadcastProgress({
       orderId,
       status: 'pending',
