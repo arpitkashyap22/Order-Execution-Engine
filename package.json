@@ -24,15 +24,24 @@
     "bullmq": "^5.20.0",
     "fastify": "^5.0.0",
     "ioredis": "^5.3.2",
+    "pg": "^8.11.3",
     "uuid": "^9.0.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
+    "@types/pg": "^8.10.9",
     "@types/uuid": "^9.0.7",
     "@types/ws": "^8.5.10",
     "tsx": "^4.7.1",
     "typescript": "^5.4.5"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "worker": "tsx src/queue/workers/order.worker.ts",
+    "db:migrate": "tsx src/db/migrate.ts"
   }
 }
 

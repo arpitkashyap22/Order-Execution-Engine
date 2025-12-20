@@ -1,5 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { getRedisClient } from '../../config/redis';
+import { getDatabasePool, closeDatabasePool, testDatabaseConnection } from '../../config/database';
 import { OrderJobData, OrderStatus, OrderProgress } from '../../types/order.types';
 import { mockDexRouter } from '../../services/dex/mock-dex.router';
 import { logger } from '../../utils/logger';
@@ -31,6 +32,44 @@ function getStatusMessage(status: OrderStatus): string {
 }
 
 /**
+ * Update order status in database
+ */
+async function updateOrderStatus(
+  orderId: string,
+  status: OrderStatus,
+  updates?: { selectedDex?: string; outputAmount?: number; transactionHash?: string }
+): Promise<void> {
+  const pool = getDatabasePool();
+  const updateFields: string[] = ['status = $1'];
+  const values: any[] = [status];
+
+  if (updates?.selectedDex !== undefined) {
+    updateFields.push(`selected_dex = $${values.length + 1}`);
+    values.push(updates.selectedDex);
+  }
+
+  if (updates?.outputAmount !== undefined) {
+    updateFields.push(`output_amount = $${values.length + 1}`);
+    values.push(updates.outputAmount);
+  }
+
+  if (updates?.transactionHash !== undefined) {
+    updateFields.push(`transaction_hash = $${values.length + 1}`);
+    values.push(updates.transactionHash);
+  }
+
+  values.push(orderId);
+
+  const query = `
+    UPDATE orders
+    SET ${updateFields.join(', ')}
+    WHERE order_id = $${values.length}
+  `;
+
+  await pool.query(query, values);
+}
+
+/**
  * Process order execution job
  */
 async function processOrder(job: Job<OrderJobData>): Promise<void> {
@@ -41,6 +80,7 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
   try {
     // Stage 1: Routing (20% progress)
     await job.updateProgress(20);
+    await updateOrderStatus(orderId, 'routing');
     await broadcastProgress({
       orderId,
       status: 'routing',
@@ -65,6 +105,10 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
 
     // Stage 2: Building (40% progress)
     await job.updateProgress(40);
+    await updateOrderStatus(orderId, 'building', {
+      selectedDex: bestQuote.dex,
+      outputAmount: bestQuote.output,
+    });
     await broadcastProgress({
       orderId,
       status: 'building',
@@ -95,6 +139,9 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
     await job.updateProgress(60);
     const swapResult = await mockDexRouter.executeSwap(bestQuote.dex, order);
     
+    await updateOrderStatus(orderId, 'submitted', {
+      transactionHash: swapResult.txHash,
+    });
     await broadcastProgress({
       orderId,
       status: 'submitted',
@@ -108,6 +155,7 @@ async function processOrder(job: Job<OrderJobData>): Promise<void> {
 
     // Stage 4: Confirmed (100% progress)
     await job.updateProgress(100);
+    await updateOrderStatus(orderId, 'confirmed');
     await broadcastProgress({
       orderId,
       status: 'confirmed',
@@ -153,18 +201,28 @@ orderWorker.on('error', (err) => {
   logger.error('Worker error:', err);
 });
 
-logger.info('Order worker started and listening for jobs...');
+// Initialize database connection
+getDatabasePool();
+testDatabaseConnection().then((connected) => {
+  if (!connected) {
+    logger.error('Failed to connect to database. Please ensure PostgreSQL is running.');
+    process.exit(1);
+  }
+  logger.info('Order worker started and listening for jobs...');
+});
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('Closing order worker...');
   await orderWorker.close();
+  await closeDatabasePool();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   logger.info('Closing order worker...');
   await orderWorker.close();
+  await closeDatabasePool();
   process.exit(0);
 });
 

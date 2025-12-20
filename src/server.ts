@@ -1,5 +1,6 @@
 import { buildApp } from './app';
 import { getRedisClient, closeRedisConnection } from './config/redis';
+import { getDatabasePool, closeDatabasePool, testDatabaseConnection } from './config/database';
 import { wsGateway } from './websocket/ws.gateway';
 import { logger } from './utils/logger';
 
@@ -12,6 +13,14 @@ async function startServer() {
   try {
     // Initialize Redis connection
     getRedisClient();
+
+    // Initialize and test database connection
+    getDatabasePool();
+    const dbConnected = await testDatabaseConnection();
+    if (!dbConnected) {
+      logger.error('Failed to connect to database. Please ensure PostgreSQL is running.');
+      process.exit(1);
+    }
 
     // Build Fastify app
     app = await buildApp();
@@ -37,6 +46,7 @@ async function shutdown() {
       await app.close();
     }
     await closeRedisConnection();
+    await closeDatabasePool();
     process.exit(0);
   } catch (error) {
     logger.error('Error during shutdown:', error);

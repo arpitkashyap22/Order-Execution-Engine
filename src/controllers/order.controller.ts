@@ -26,7 +26,7 @@ export class OrderController {
       }
 
       // Create order
-      const order = orderService.createOrder({
+      const order = await orderService.createOrder({
         fromToken,
         toToken,
         amount,
@@ -68,7 +68,7 @@ export class OrderController {
   ): Promise<void> {
     try {
       const { orderId } = request.params;
-      const order = orderService.getOrder(orderId);
+      const order = await orderService.getOrder(orderId);
 
       if (!order) {
         reply.code(404).send({
@@ -94,7 +94,7 @@ export class OrderController {
    */
   async getAllOrders(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     try {
-      const orders = orderService.getAllOrders();
+      const orders = await orderService.getAllOrders();
       reply.send({
         orders,
         count: orders.length,
